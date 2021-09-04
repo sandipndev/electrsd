@@ -96,7 +96,7 @@ pub enum Error {
 impl ElectrsD {
     /// Create a new electrs process connected with the given bitcoind and default args.
     pub fn new<S: AsRef<OsStr>>(exe: S, bitcoind: &BitcoinD) -> Result<ElectrsD, Error> {
-        ElectrsD::with_conf(exe, bitcoind, &Conf::default())
+        ElectrsD::with_conf(exe, bitcoind, &Conf::default(), None)
     }
 
     /// Create a new electrs process using given [Conf] connected with the given bitcoind
@@ -104,6 +104,7 @@ impl ElectrsD {
         exe: S,
         bitcoind: &BitcoinD,
         conf: &Conf,
+        addr_type: Option<&str>,
     ) -> Result<ElectrsD, Error> {
         let response = bitcoind.client.call::<Value>("getblockchaininfo", &[])?;
         if response
@@ -113,11 +114,21 @@ impl ElectrsD {
         {
             // electrum will remain idle until bitcoind is in IBD
             // bitcoind will remain in IBD if doesn't see a block from a long time, thus adding a block
-            let node_address = bitcoind.client.call::<Value>("getnewaddress", &[])?;
-            bitcoind
-                .client
-                .call::<Value>("generatetoaddress", &[1.into(), node_address])
-                .unwrap();
+            if addr_type.is_none() {
+                let node_address = bitcoind.client.call::<Value>("getnewaddress", &[])?;
+                bitcoind
+                    .client
+                    .call::<Value>("generatetoaddress", &[1.into(), node_address])
+                    .unwrap();
+            } else {
+                let node_address = bitcoind
+                    .client
+                    .call::<Value>("getnewaddress", &["".into(), addr_type.unwrap().into()])?;
+                bitcoind
+                    .client
+                    .call::<Value>("generatetoaddress", &[1.into(), node_address])
+                    .unwrap();
+            }
         }
 
         let mut args = conf.args.clone();
@@ -284,7 +295,7 @@ mod test {
             view_stderr: log_enabled!(Level::Debug),
             ..Default::default()
         };
-        let electrsd = ElectrsD::with_conf(&electrs_exe, &bitcoind, &electrs_conf).unwrap();
+        let electrsd = ElectrsD::with_conf(&electrs_exe, &bitcoind, &electrs_conf, None).unwrap();
         let header = electrsd.client.block_headers_subscribe().unwrap();
         assert_eq!(header.height, 1);
         let address = bitcoind.client.get_new_address(None, None).unwrap();
